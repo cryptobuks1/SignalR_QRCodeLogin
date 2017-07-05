@@ -1,0 +1,180 @@
+﻿
+@{
+    ViewBag.Title = "Room";
+}
+
+@section styles
+{
+    <style type="text/css">
+        .alert-sm {
+            padding: 5px;
+            text-align: center;
+        }
+
+        #divChatWindow {
+            height: 500px;
+        }
+    </style>    
+}
+
+<div class="row">
+    <div class="col-lg-3 col-md-3">
+        <div class="box box-solid">
+            <div class="box-header with-border">
+                <h3 class="box-title">使用者</h3>
+            </div>
+            <div class="box-body">
+                <ul id="user-list" class="nav nav-pills nav-stacked"></ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-9 col-md-9">
+        <div class="box box-primary direct-chat direct-chat-primary">
+            <div class="box-header with-border">
+                <h3 class="box-title">Room</h3>
+            </div>
+            <div class="box-body">
+                <div id="divChatWindow" class="direct-chat-messages">
+                    <div id="historyChat"></div>
+                    <div class="alert alert-info alert-sm" role="alert">
+                        <i class="fa fa-comments"></i> 以上為歷史訊息
+                    </div>
+                    <div id="currentChat"></div>
+                </div>
+            </div>
+            <div class="box-footer">
+                <div class="input-group">
+                    <input id="txtMessage" type="text" name="message" placeholder="輸入訊息..." class="form-control" autocomplete="off" />
+                    <span class="input-group-btn">
+                        <button id="btnSendMsg" type="button" class="btn btn-primary btn-flat">傳送</button>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="text/x-jqote-template" id="msg-template">
+    <![CDATA[
+    <div class="direct-chat-msg">
+        <div class='direct-chat-info clearfix'>
+            <span class='direct-chat-name pull-left'><#= this.UserName #></span>
+            <span class='direct-chat-timestamp pull-right'><#= this.Time #></span>
+        </div>
+        <img class="direct-chat-img" src="@Url.Content("~/Images/default_mugshot.jpg")" alt="message user image" />
+        <div class="direct-chat-text">
+            <#= this.Message #>
+        </div>
+    </div>
+    ]]>
+</script>
+
+@section scripts
+{
+    <script type="text/javascript" src="~/signalr/hubs/"></script>
+    <script type="text/javascript">
+        $(function () {
+            // Declare a proxy to reference the hub.
+            // 記得改成您自己的 Hub檔「檔名」，在此，檔名第一個要用小寫。
+            var chatHub = $.connection.chatHub;
+
+            // 向後端的Hub，註冊 Clinet端（前端）的 function //
+            // 連線事件
+            chatHub.client.onConnected = function (id, userName, allUsers, messages) {
+                // 加入目前使用者
+                $.each(allUsers, function () {
+                    $('#user-list').append('<li id="user-' + this.ConnectionId + '">' + this.UserName + '<li>');
+                });
+
+                // 加入歷史訊息
+                $.each(messages, function () {
+                    this.Time = new Date(this.Time).format('yyyy-MM-dd HH:mm:ss');
+
+                    $('#historyChat').append($('#msg-template').jqote(this, '#'));
+                    scrollChat();
+                });
+            }
+
+            // 新使用者加入事件
+            chatHub.client.onNewUserConnected = function (id, name) {
+                $('#user-list').append('<li id="user-' + id + '">' + name + '<li>');
+
+                addNotify('success', '[' + name  + ']已加入會議室');
+            }
+
+            // 使用者斷線事件
+            chatHub.client.onUserDisconnected = function (id, name) {
+                $('#user-' + id).remove();
+
+                addNotify('error', '[' + name + ']已離開會議室');
+            }
+
+            // 接收訊息事件
+            chatHub.client.messageReceived = function (message) {
+                var prevType = $(window).data("prevType");
+
+                message.Time = new Date(message.Time).format('yyyy-MM-dd HH:mm:ss');
+
+                $('#currentChat').append($('#msg-template').jqote(message, '#'));
+
+                if (prevType == 'blur') {
+                    titlenotifier.add();
+                }
+
+                scrollChat();
+            }
+
+            $.connection.hub.start().done(function () {
+                // bind DOM Events
+                registerEvents(chatHub);
+
+                //var name = prompt('Enter your name:', '');
+                var name = '@User.Identity.Name';
+
+                // 建立連線
+                chatHub.server.connect(name);
+            });
+        });
+
+        function registerEvents(chatHub) {
+            // 發送訊息
+            $('#btnSendMsg').click(function () {
+                var msg = $("#txtMessage").val();
+
+                if (msg.length > 0) {
+                    //後端的 SendMessageToAll方法，在前端，第一個字會改成小寫名稱
+                    chatHub.server.sendMessageToAll(msg);
+                    $("#txtMessage").val('');
+                }
+            });
+
+            $('#txtMessage').bind('keydown', 'return', function (e) {
+                e.preventDefault();
+
+                $('#btnSendMsg').trigger('click', null);
+            });
+
+            // 當焦點在視窗上時，自動重置title notifier
+            $(window).on("blur focus", function (e) {
+                var prevType = $(this).data("prevType");
+
+                if (prevType != e.type) {   //  reduce double fire issues
+                    switch (e.type) {
+                        case "blur":
+                            // do work
+                            break;
+                        case "focus":
+                            titlenotifier.reset();
+                            break;
+                    }
+                }
+
+                $(this).data("prevType", e.type);
+            })
+        }
+
+        function scrollChat(){
+            var height = $('#divChatWindow')[0].scrollHeight;
+            $('#divChatWindow').scrollTop(height);
+        }
+</script>
+}
